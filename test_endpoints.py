@@ -7,19 +7,11 @@ Usage / Käyttö:
 
 Valinnainen JSON-tulos (opettajan arviointiskripti) / optional JSON output:
     python test_endpoints.py URL --json
-
-FI: Tarkistin toimii OMAA kantaasi vastaan: se hakee artistin, päivän ja lavan
-    tunnisteet rajapinnastasi (/api/artists, /api/days, /api/stages). POST-testin
-    lisäämä rivi tarkistetaan hakemalla se takaisin ja poistetaan lopuksi
-    DELETE-kutsulla, joten testi ei jätä roskaa ohjelmaan.
-EN: The checker works against YOUR OWN database: it reads artist, day and stage
-    ids from your API (/api/artists, /api/days, /api/stages). The row inserted by
-    the POST test is read back and finally removed with DELETE, so the test leaves
-    no junk in the program.
 """
 import json
 import random
 import re
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -35,8 +27,12 @@ def call(base, path, method="GET", body=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
+    
+    # Ohitetaan SSL-varmennevirheet omalta koneelta testatessa
+    context = ssl._create_unverified_context()
+    
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=30, context=context) as r:
             status, raw, ctype = r.status, r.read().decode(), r.headers.get("Content-Type", "")
     except urllib.error.HTTPError as e:
         status, raw, ctype = e.code, e.read().decode(), e.headers.get("Content-Type", "")
@@ -100,7 +96,6 @@ def main(base):
     # 4. Timetable
     st, tt, _ = call(base, "/api/timetable")
     check("GET /api/timetable returns a JSON list", st == 200 and isinstance(tt, list), f"status={st}")
-    # FI: suodatustesti käyttää päivää, jolla on ohjelmaa / EN: filter test uses a day that has events
     tt_day = next((r.get("date") for r in tt if isinstance(r, dict) and r.get("date")), day_date) \
         if isinstance(tt, list) else day_date
     if tt_day:
@@ -121,7 +116,6 @@ def main(base):
     if None in (aid, did, sid, day_date):
         check("POST tests need ids from /api/artists, /api/days and /api/stages", False, "missing ids")
     else:
-        # Random small-hours start time: re-runnable despite UNIQUE(day_id, stage_id, start_dt).
         start_dt = f"{day_date} 0{random.randint(0, 4)}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}"
         st, _, _ = call(base, "/api/events", "POST",
                         {"artist_id": 999999, "stage_id": sid, "day_id": did, "start_dt": start_dt})
